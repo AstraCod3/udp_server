@@ -1,0 +1,16 @@
+
+ https://stackoverflow.com/questions/14665543/how-do-i-receive-udp-packets-with-winsock-in-c
+ https://handsonnetworkprogramming.com/articles/socket-error-message-text/
+ 
+ https://jweinst1.medium.com/how-to-use-udp-sockets-on-windows-29e7e60679fe
+ 
+ 
+ 
+ https://www.dataenter.com/common/winsockerror.htm
+
+/////////////////////////////////////////////////////////////////////////////
+
+Since c++11, you can use the standard library instead of FormatMessage :
+#include <system_error>
+std::string message = std::system_category().message(hr)
+
