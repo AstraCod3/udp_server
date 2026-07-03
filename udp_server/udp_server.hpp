@@ -43,6 +43,10 @@
  */
 namespace ns_udp_server {
 
+    /**
+     * @brief
+     */
+    constexpr std::size_t max_size_udp_rx = 65535; ///< Max theoretical UDP payload size.
 
     /**
      * @class udp_server_error 
@@ -76,40 +80,53 @@ namespace ns_udp_server {
 
 
     /**
-     * @struct udp_packet
+     * @struct cpacket
      * @brief Monolithic single-buffer circular ring engine for high-speed UDP ingestion.
      */
-    struct packet {
+    struct cpacket {
 
         public :
 
         /**
-         * @brief Constructor that pre-allocates size tracking memory to prevent runtime allocations.
+         * @brief
+         * @throw
          */
-        packet() {
-            // Pre-allocate the vector size immediately to avoid reallocation data races with the main thread
-            // packet_size.resize(max_packets, 0);
+        cpacket() : mfirst_packet(false) {
+            try {
+                // If this massive allocation fails, C++ automatically throws std::bad_alloc
+                mdata = std::make_unique<std::array<uint8_t, max_num_bytes>>();
+            }
+            catch (const std::bad_alloc& e) {
+                // std::cerr << "Allocation failed! Error details: " << e.what() << std::endl;
+                throw udp_server_error( "Called \"cpacket::cpacket() Allocation failed! Error details : " + std::string( e.what() );
+            }
         }
 
         /**
          * @brief Commits the newly received packet size into history and advances the internal circular cursor.
          * @param bytes_len The exact number of bytes returned by the recvfrom call.
          */
-        void commit_packet(std::size_t bytes_len) {
-            offset last_offset;
+        void commit_packet( const std::size_t& bytes_len ) {
             std::unique_lock<std::mutex> lck( mmtx_offset );
-            last_offset = packet_offsets.back();   
-            
-            last_offset.begin = last_offset.end + 1;
-            if ( last_offset.begin > max_bytes )
-                last_offset.begin = last_offset.begin % max_bytes ;  
-            
-            last_offset.end = last_offset.begin + bytes_len;
-            if ( last_offset.end > max_bytes )
-                last_offset.end = last_offset.end % max_bytes ;  
+            offset tmp_offset;
+            tmp_offset.counter++;
+            ///< First packet
+            if ( packet_offsets.empty() ) {
+                tmp_offset.end = bytes_len;
+                packet_offsets.push_back( tmp_offset ); 
+                mcv_first_packet.notify_one();
+            }
+            else {
+            ///< Other packets
+                offset last_offset = packet_offsets.back();
+                tmp_offset.begin = last_offset.end + 1;
+                if ( tmp_offset.begin > max_num_bytes )
+                    tmp_offset.begin = tmp_offset.begin % max_num_bytes;  
 
-            packet_offsets.push_back( last_offset ); 
-            lck.unlock();
+                tmp_offset.end = tmp_offset.begin + bytes_len;
+                if ( tmp_offsets.end > max_num_bytes )
+                    tmp_offset.end = tmp_offset.end % max_num_bytes;
+            }
         }
 
         /**
@@ -126,24 +143,54 @@ namespace ns_udp_server {
         /**
          * @brief
          */
-        std::size_t get_offset_last_packet( ) {
+        std::size_t get_offset_next_packet( ) {
             std::unique_lock<std::mutex> lck( mmtx_offset );
-            offset last_offset = packet_offsets.back();   
+            offset next_offset = packet_offsets.back();   
             lck.unlock();
-            return last_offset.end;
+            next_offsets.end = next_offsets.end + 1; 
+            if ( next_offsets.end > max_num_bytes )
+                next_offset.end = next_offset.end % max_num_bytes;
+            return next_offset.end;
+        }
+
+        /**
+         * @brief
+         */
+        void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
+            waiting_first_packet_received();
+            offset last_offset;
+            std::unique_lock<std::mutex> lck( mmtx_offset );
+            last_offset = packet_offsets.back();   
+            lck.unlock();
+
+            last_packet_.resize(last_offset.end - last_offset.end);
+            auto src_begin = mdata.begin() + last_offset.begin;
+            auto src_end = mdata.begin() + last_offset.end;
+            std::copy(src_begin, src_end, last_packet_.begin());
         }
 
         private : 
         
-        static constexpr std::size_t max_size_udp_rx = 65535; ///< Max theoretical UDP payload size.
-        static constexpr std::size_t max_packets = 10; ///< Total slots available in the ring buffer.
-        // static constexpr std::size_t max_bytes = max_size_udp_rx * max_packets;
-        static constexpr std::size_t max_bytes = max_size_udp_rx ;
-        
-        std::mutex mmtx_data;
-        std::array< uint8_t, 100 > data; ///< Flat contiguous memory block allocating ~655 Megabytes on the heap.
 
-        std::mutex mmtx_offset; ///< Chronological history tracking the real size of each received packet. 
+        /**
+         * @brief
+         */
+        static constexpr std::size_t max_packets = 10; ///< Total slots available in the ring buffer.
+
+        /**
+         * @brief
+         */
+        static constexpr std::size_t max_num_bytes = max_size_udp_rx * max_packets;
+        
+        /**
+         * @brief
+         */
+        std::mutex mmtx_data;
+
+        /**
+         * @brief Flat contiguous memory block allocating ~655 Megabytes on the heap.
+         */
+        std::unique_ptr< std::array<uint8_t, max_num_bytes> > mdata;
 
         /**
          * @brief Chronological history tracking the real size of each received packet.
@@ -151,48 +198,88 @@ namespace ns_udp_server {
         struct offset {
             offset() : begin(0),end(0) { }
             virtual ~offset() { }
-            std::size_t begin = 0;  ///< Circular cursor index for the next write operation (0 to 9999).
-            std::size_t end = 0;   ///< Monotonically increasing counter of all packets received.
+            std::size_t begin = 0;
+            std::size_t end = 0;
+            std::size_t counter = 1;
         };
 
-        std::vector< offset > packet_offsets; ///< Chronological history tracking the real size of each received packet. 
+        /**
+         * @brief
+         */
+        std::mutex mmtx_offsets;
+
+        /**
+         * @brief
+         */
+        std::vector< offset > packet_offsets;
+
+        /**
+         * @brief
+         */
+        std::mutex mmtx_first_packet;
+
+        /**
+         * @brief
+         */
+        std::condition_variable mcv_first_packet;
+
+        /*
+         * @brief
+         */
+        bool mfirst_packet = false;
+
+        /*
+         * @brief
+         */
+        void set_first_packet_recevied() {
+            std::unique_lock<std::mutex> lck_fp( mmtx_first_packet );
+            if ( !mfisrt_packet ) {
+                mfisrt_packet = true;
+                mcv_first_packet.notify_one(); 
+            }
+        }
+
+        /*
+         * @brief This function IS BLOCKING. until the first packet is received
+         */
+        void waiting_first_packet_received() {
+            std::unique_lock<std::mutex> lck_fp( mmtx_first_packet );
+            if ( !mfisrt_packet ) {
+                mcv_first_packet.wait(lck_fp, [this] { return mfisrt_packet; });
+            }
+        }
 
     };
 
 
     /**
-     * @class udp_server_base 
-     * @brief Constructor for udp_server_base
+     * @class udp_server 
+     * @brief Constructor for udp_server
      */
-	class udp_server_base {
+	class udp_server {
 
         public:
  
         /**
-         * @brief Constructor for udp_server_base
+         * @brief Constructor for udp_server
          * @param _lport local port
          * @throw std::runtime_error If the thread was not created
          */
-		udp_server_base( unsigned short& _lport ) :
+		udp_server( unsigned short& _lport ) :
                 mlocal_port(_lport),
                 merror_code_num(0),
                 merror_code_str(""),
                 msocket(0) {
             if ( _lport > 65535 ) {
                 mlocal_port = 0 ;
-                throw udp_server_error( "Called \"uudp_server_base::dp_server_base()\" local port : " + std::to_string( _port ) + " > 65535");
+                throw udp_server_error( "Called \"uudp_server::dp_server_base()\" local port : " + std::to_string( _port ) + " > 65535");
             }
         }
 
         /**
-         * @brief Destructor for udp_server_base
+         * @brief Destructor for udp_server
          */
-		virtual ~udp_server_base( ) { }
-
-        /**
-         * @brief
-         */
-		virtual receive_base( ) = 0;
+		virtual ~udp_server( ) { }
 
         /**
          * @brief This function is BLOCKING
@@ -204,7 +291,7 @@ namespace ns_udp_server {
             ret = WSAStartup(MAKEWORD(2, 2), &data);
             if (ret != EXIT_SUCCESS) {
                 set_err_sys();
-                throw udp_server_error("Called \"udp_server_base::start_server() WSAStartup() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
+                throw udp_server_error("Called \"udp_server::start_server() WSAStartup() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
             }
         #endif
             open_socket();
@@ -215,15 +302,15 @@ namespace ns_udp_server {
         /**
          * @brief
          */
-		void stop( ) {
+		void stop_server( ) {
             if ( close_socket() != EXIT_SUCCESS ) {
                 set_err_sys();
-                throw udp_server_error ("Called \"udp_server_base::stop() close_socket() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
+                throw udp_server_error ("Called \"udp_server::stop() close_socket() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
             }
         #if defined _WIN64 || _WIN32
             if ( WSACleanup() != EXIT_SUCCESS) {
                 set_err_sys();
-                throw udp_server_error ("Called \"udp_server_base::stop() WSACleanup() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
+                throw udp_server_error ("Called \"udp_server::stop() WSACleanup() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
             }
         #endif
         }
@@ -249,6 +336,10 @@ namespace ns_udp_server {
          */
 		unsigned short get_local_port() { return mlocal_port; }
 
+
+        void get_last_packet( std::array< uint8_t >& last_packet_ ) {
+            mpackets.get_last_packet( last_packet_ );
+        }
 
         protected:
 
@@ -280,7 +371,7 @@ namespace ns_udp_server {
         /**
          * @brief 
          */
-        packet mpackets;
+        cpacket mpackets;
 
     #if defined _WIN64 || _WIN32
         /**
@@ -400,7 +491,7 @@ namespace ns_udp_server {
             // MessageBoxExW(NULL, DisplayBuffer.c_str(), L"Error", MB_ICONERROR | MB_OK, static_cast<WORD>(err));
             //
 
-        std::unique_lock<std::mutex> lck(mmtx_error);
+            std::unique_lock<std::mutex> lck(mmtx_error);
 
             const std::wstring tempwstr = static_cast<wchar_t*>(lpBuffer);
             std::string str;
@@ -415,14 +506,12 @@ namespace ns_udp_server {
             //
 
             merror_code_num = err;
-
-        lck.unlock();
+            lck.unlock();
 
             if (NULL != lpBuffer) {
                 LocalFree(lpBuffer);
                 lpBuffer = NULL;
             }
-
         #endif
 
         #if defined __linux__ || __unix__
@@ -435,47 +524,47 @@ namespace ns_udp_server {
          * @brief THIS Function is BLOCKING
          */
         void receive_from() {
-            /**
-             * @brief 
-             */
+            static bool first_packet_received = false;
             static struct sockaddr_in msclient;
             static const int size_client = sizeof(msclient);
-
+            uint8_t* write_ptr = mpackets.get_offset_last_packet();
             bool run = true;
-            
             while ( run ) {
-
                 std::memset(&msclient, 0, sizeof(msclient));
-		
-                uint8_t* write_ptr = mpackets.get_offset_last_packet() + 1;
-
-                std::unique_lock<std::mutex> lck(mmtx_data);
-
+                // std::unique_lock<std::mutex> lck(mmtx_data);
             #if defined _WIN64 || _WIN32
                 int num_bytes_rx = recvfrom(msocket,
-                                (char*)write_ptr,
-                                MAXSIZE_UDP_RX,
-                                0,
-                                reinterpret_cast<SOCKADDR*>(&msclient), &size_client );
-                                //(SOCKADDR*)(&msclient), &size);
+                                    (char*)write_ptr,
+                                    MAXSIZE_UDP_RX,
+                                    0,
+                                    reinterpret_cast<SOCKADDR*>(&msclient), &size_client );
+                                    // (SOCKADDR*)(&msclient), &size);
 
                 // ret : 0 = close socket
                 if ( bytes_rx == SOCKET_ERROR || bytes_rx < 0 ) {
                     set_err_sys();
-                    throw udp_server_error( "Called \"udp_server_base::receive_from() SOCKET_ERROR\"", get_error_code_num(), get_error_code_str() );
+                    throw udp_server_error( "Called \"udp_server::receive_from() SOCKET_ERROR\"", get_error_code_num(), get_error_code_str() );
                 }
             #endif
 
-                if ( num_bytes_rx >= 0 ) {
-                    mpackets.commit_
-                } 
+            #if defined __linux__ || __unix__
+            #endif
 
-                lck.unlock();
-            }
+                if ( num_bytes_rx >= 0 ) {
+                    if ( !first_packet_received ) {
+                        first_packet_received = true;
+                        mpackets.set_first_packet_recevied();
+                    }
+                    write_ptr = mpackets.get_offset_last_packet();
+                    mpackets.commit_packet( num_bytes_rx );
+                } 
+                // lck.unlock();
+
+            } // while ( run )
         }
 
-    }; /* class udp_server_base */
+    }; // class udp_server 
 
-} /* namespace ns_udp_server */
+} // namespace ns_udp_server
 
 #endif
