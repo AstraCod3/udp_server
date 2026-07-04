@@ -38,6 +38,7 @@ namespace ns_example_udp_server {
         std::cout << "\n";
         
         unsigned short lport = 1581; ///< Target UDP local port.
+        std::cout << " local port : " << lport << "\n";
         // Explicit type declaration for the server instance
         ns_udp_server::udp_server udpsrv(lport); ///< Global or namespace-scoped server instance.
         udpsrv.start(); 

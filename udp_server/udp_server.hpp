@@ -24,9 +24,12 @@
 
 #include <iostream>
 #include <string>
+#include <cstring>  // Per std::strerror
+
 #include <array>
 #include <vector>
 #include <cstdlib>
+
 #include <sstream>
 #include <mutex>
 
@@ -42,7 +45,12 @@
 #endif
 
 #if defined __linux__ || __unix__
-#include <sys/socket.h>
+#include <sys/socket.h> // socket(), bind(), recvfrom(), sockaddr
+#include <netinet/in.h> // sockaddr_in, INADDR_ANY, htons()
+#include <arpa/inet.h>  // inet_addr(), inet_ntoa()
+#include <unistd.h>     // close() 
+#include <cerrno>       // errno
+//#include <cstring>      // std::strerror e memset
 // #include <sys/un.h>
 #include <unistd.h>
 #endif
@@ -436,8 +444,8 @@ namespace ns_udp_server {
             sockaddr_in addr;
             ///< AF_INET = IPV4
             addr.sin_family = AF_INET;
-            addr.sin_addr.s_addr = htonl(INADDR_ANY);
             addr.sin_port = htons(mlocal_port);
+            addr.sin_addr.s_addr = htonl(INADDR_ANY);
             if ( bind(msocket, (SOCKADDR*)(&addr), sizeof(addr)) != EXIT_SUCCESS ) {
                 err_bind = true;
             }
@@ -445,10 +453,13 @@ namespace ns_udp_server {
 
         #if defined __linux__ || __unix__
            // struct sockaddr_in  addr;
-           sockaddr  addr;
+           sockaddr_in  addr;
            memset(&addr, 0, sizeof(addr));
            //addr.sun_family = AF_UNIX;
-           addr.sa_family = AF_INET;
+           addr.sin_family = AF_INET;
+           addr.sin_port = htons(mlocal_port);
+           addr.sin_addr.s_addr = htonl(INADDR_ANY);
+           //addr.sa_family = AF_INET;
            // strncpy(addr.sun_path, MY_SOCK_PATH, sizeof(addr.sun_path) - 1);
            if (bind(msocket, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
                err_bind = true;
@@ -581,6 +592,8 @@ namespace ns_udp_server {
 
         #if defined __linux__ || __unix__
             std::unique_lock<std::mutex> lck(mmtx_error);
+            merror_code_num = errno;
+            merror_code_str = std::strerror(errno);
             lck.unlock();
         #endif
         }
@@ -603,7 +616,11 @@ namespace ns_udp_server {
             socklen_t size_client = sizeof(client);
         #endif
 
-            uint8_t* write_ptr = mpackets.get_offset_next_packet();
+            //uint8_t* write_ptr = mpackets.get_offset_next_packet();
+
+            // Opzione B: std::vector (dinamico)
+            unsigned char buffer[max_size_udp_rx];
+            unsigned char* write_ptr = &buffer[0];
 
             while ( run ) {
                 memset(&client, 0, sizeof(client));
@@ -618,7 +635,7 @@ namespace ns_udp_server {
                                     // (SOCKADDR*)(&msclient), &size);
 
                 // ret : 0 = close socket
-                if ( num_bytes_rx == SOCKET_ERROR || bytes_rx < 0 ) {
+                if ( num_bytes_rx == SOCKET_ERROR || num_bytes_rx < 0 ) {
                     set_err_sys();
                     throw udp_server_error( "Called \"udp_server::receive_from() SOCKET_ERROR\"", get_error_code_num(), get_error_code_str() );
                     break;
@@ -629,7 +646,7 @@ namespace ns_udp_server {
             #if defined __linux__ || __unix__
                 // std::unique_lock<std::mutex> lck(mmtx_data);
                 ssize_t num_bytes_rx = recvfrom(msocket,
-                                    (char*)write_ptr,
+                                    (unsigned char*)write_ptr,
                                     max_size_udp_rx,
                                     0,
                                     //reinterpret_cast<sockaddr*>(&client), 

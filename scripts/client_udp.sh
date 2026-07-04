@@ -4,9 +4,10 @@
 # CONFIGURAZIONE
 # ==============================================================================
 # Cambia l'IP e la Porta in base a dove è in ascolto il tuo udp_server C++
-SERVER_IP="127.0.0.1"
-SERVER_PORT=12345
-LOOP_COUNT=10
+#SERVER_IP="127.0.0.1"
+SERVER_IP="192.168.1.5"
+SERVER_PORT=1581
+LOOP_COUNT=2
 DELAY=0.5 # 500 millisecondi
 
 # ==============================================================================
