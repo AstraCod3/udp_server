@@ -127,10 +127,10 @@ namespace ns_udp_server {
         void commit_packet( const std::size_t& bytes_len ) {
             std::unique_lock<std::mutex> lck( mmtx_offsets );
             offset tmp_offset;
-            tmp_offset.counter++;
             ///< First packet
             if ( packet_offsets.empty() ) {
-                tmp_offset.end = bytes_len;
+                // begin = 0
+                tmp_offset.end = bytes_len - 1;
                 packet_offsets.push_back( tmp_offset ); 
                 mcv_first_packet.notify_one();
             }
@@ -138,13 +138,11 @@ namespace ns_udp_server {
             ///< Other packets
                 offset last_offset = packet_offsets.back();
                 tmp_offset.begin = last_offset.end + 1;
-                if ( tmp_offset.begin > max_num_bytes )
+                if ( tmp_offset.begin >= max_num_bytes )
                     tmp_offset.begin = tmp_offset.begin % max_num_bytes;  
-
-                tmp_offset.end = tmp_offset.begin + bytes_len;
-                if ( tmp_offset.end > max_num_bytes )
+                tmp_offset.end = tmp_offset.begin + bytes_len - 1;
+                if ( tmp_offset.end >= max_num_bytes )
                     tmp_offset.end = tmp_offset.end % max_num_bytes;
-
                 packet_offsets.push_back( tmp_offset ); 
             }
         }
@@ -172,7 +170,7 @@ namespace ns_udp_server {
             }
             lck.unlock();
 
-            if ( next_offset.end > max_num_bytes )
+            if ( next_offset.end >= max_num_bytes )
                 next_offset.end = next_offset.end % max_num_bytes;
 
             return &((*mdata)[next_offset.end]);
@@ -182,7 +180,9 @@ namespace ns_udp_server {
          * @brief
          */
         void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
+
             waiting_first_packet_received();
+
             offset last_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
             last_offset = packet_offsets.back();   
@@ -214,6 +214,8 @@ namespace ns_udp_server {
                 mcv_first_packet.wait(lck_fp, [this] { return mfirst_packet; });
             }
         }
+
+
         private : 
         
 
@@ -241,11 +243,10 @@ namespace ns_udp_server {
          * @brief Chronological history tracking the real size of each received packet.
          */
         struct offset {
-            offset() : begin(0),end(0),counter(0) { }
+            offset() : begin(0),end(0) { }
             virtual ~offset() { }
             std::size_t begin = 0;
             std::size_t end = 0;
-            std::size_t counter = 1;
         };
 
         /**
@@ -657,8 +658,8 @@ namespace ns_udp_server {
                         first_packet_received = true;
                         mpackets.set_first_packet_recevied();
                     }
-                    write_ptr = mpackets.get_offset_next_packet();
                     mpackets.commit_packet( num_bytes_rx );
+                    write_ptr = mpackets.get_offset_next_packet();
                 }
 
             } // while ( run )

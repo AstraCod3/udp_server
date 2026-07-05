@@ -17,7 +17,33 @@ if [ ! -d "$bin_path" ]; then
 fi
 
 cd "$bin_path"
-for filename in $(ls -1); do
+
+# Run unit tests
+for filename in $(ls -1 unit_test*); do
+    echo "run executable file : $filename"
+    ./"$filename"
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "AARRGGHH!!! $filename executable failed. Exiting script."
+        echo ""
+        exit 1
+    fi
+done
+
+# Run integration tests
+for filename in $(ls -1 integration*); do
+    echo "run executable file : $filename"
+    ./"$filename"
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "AARRGGHH!!! $filename executable failed. Exiting script."
+        echo ""
+        exit 1
+    fi
+done
+
+# Run example tests
+for filename in $(ls -1 example*); do
     echo "run executable file : $filename"
     ./"$filename"
     if [ $? -ne 0 ]; then
