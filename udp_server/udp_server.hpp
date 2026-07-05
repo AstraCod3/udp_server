@@ -16,15 +16,15 @@
  * #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) 
  */
 
-#ifndef BASEUDPSERVER_HEADER
-#define BASEUDPSERVER_HEADER
+#ifndef UDPSERVER_HEADER
+#define UDPSERVER_HEADER
 
 #include <stdio.h>
 #include <string.h>
 
 #include <iostream>
 #include <string>
-#include <cstring>  // Per std::strerror
+#include <cstring>  // std::strerror e memset
 
 #include <array>
 #include <vector>
@@ -50,7 +50,6 @@
 #include <arpa/inet.h>  // inet_addr(), inet_ntoa()
 #include <unistd.h>     // close() 
 #include <cerrno>       // errno
-//#include <cstring>      // std::strerror e memset
 // #include <sys/un.h>
 #include <unistd.h>
 #endif
@@ -167,13 +166,7 @@ namespace ns_udp_server {
         uint8_t* get_offset_next_packet( ) {
             offset next_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
-            ///<first packet
-            if ( packet_offsets.empty() ) {
-                lck.unlock();
-                return 0;
-            }
-            else {
-                ///<other packet
+            if ( !packet_offsets.empty() ) {
                 next_offset = packet_offsets.back();   
                 next_offset.end = next_offset.end + 1; 
             }
@@ -453,15 +446,12 @@ namespace ns_udp_server {
 
         #if defined __linux__ || __unix__
            // struct sockaddr_in  addr;
-           sockaddr_in  addr;
+           sockaddr_in addr;
            memset(&addr, 0, sizeof(addr));
-           //addr.sun_family = AF_UNIX;
            addr.sin_family = AF_INET;
            addr.sin_port = htons(mlocal_port);
            addr.sin_addr.s_addr = htonl(INADDR_ANY);
-           //addr.sa_family = AF_INET;
-           // strncpy(addr.sun_path, MY_SOCK_PATH, sizeof(addr.sun_path) - 1);
-           if (bind(msocket, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+           if (bind(msocket, (struct sockaddr *) &addr, sizeof(addr)) < 0 ) {
                err_bind = true;
            }
         #endif
@@ -611,21 +601,21 @@ namespace ns_udp_server {
         #endif
 
         #if defined __linux__ || __unix__
-            struct sockaddr client;
-            //static const int size_client = sizeof(client);
-            socklen_t size_client = sizeof(client);
+            struct sockaddr_in client;
+            socklen_t size_client;
         #endif
 
-            //uint8_t* write_ptr = mpackets.get_offset_next_packet();
+            // std::unique_lock<std::mutex> lck(mmtx_data);
+            uint8_t* write_ptr = mpackets.get_offset_next_packet();
+            // lck.unlock();
 
             // Opzione B: std::vector (dinamico)
-            unsigned char buffer[max_size_udp_rx];
-            unsigned char* write_ptr = &buffer[0];
+            //unsigned char buffer[max_size_udp_rx];
+            //unsigned char* write_ptr = &buffer[0];
 
             while ( run ) {
-                memset(&client, 0, sizeof(client));
+                std::memset(&client, 0, sizeof(client));
 
-                // std::unique_lock<std::mutex> lck(mmtx_data);
             #if defined _WIN64 || _WIN32
                 int num_bytes_rx = recvfrom(msocket,
                                     (char*)write_ptr,
@@ -644,6 +634,8 @@ namespace ns_udp_server {
 
 
             #if defined __linux__ || __unix__
+                size_client = sizeof(client);
+                errno = 0;
                 // std::unique_lock<std::mutex> lck(mmtx_data);
                 ssize_t num_bytes_rx = recvfrom(msocket,
                                     (unsigned char*)write_ptr,
@@ -668,7 +660,6 @@ namespace ns_udp_server {
                     write_ptr = mpackets.get_offset_next_packet();
                     mpackets.commit_packet( num_bytes_rx );
                 }
-                // lck.unlock();
 
             } // while ( run )
         }

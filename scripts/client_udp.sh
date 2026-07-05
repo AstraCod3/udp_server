@@ -7,7 +7,7 @@
 #SERVER_IP="127.0.0.1"
 SERVER_IP="192.168.1.5"
 SERVER_PORT=1581
-LOOP_COUNT=2
+LOOP_COUNT=1
 DELAY=0.5 # 500 millisecondi
 
 # ==============================================================================
@@ -29,14 +29,15 @@ echo "Inizio invio di $LOOP_COUNT pacchetti a $SERVER_IP:$SERVER_PORT..."
 echo "Pausa tra i pacchetti: ${DELAY}s"
 echo "----------------------------------------------------------------"
 
-for ((i=1; i<=LOOP_COUNT; i++))
+for ((i=0; i<LOOP_COUNT; i++))
 do
     # 1. Prende la stringa esadecimale (es. "000102...ffff")
     # 2. xxd -r -p la converte nei byte binari grezzi corrispondenti
     # 3. nc -u spedisce il pacchetto via UDP al server
-    echo -n "$HEX_SEQUENCE" | xxd -r -p | nc -u "$SERVER_IP" "$SERVER_PORT"
-    
-    echo "[Pacchetto $i/$LOOP_COUNT] Sequenza inviata con successo."
+    echo -n "$HEX_SEQUENCE" | xxd -r -p | nc -u -w 1 "$SERVER_IP" "$SERVER_PORT"
+   
+    COUNT=$((i+1))
+    echo "[Pacchetto $COUNT/$LOOP_COUNT] Sequenza inviata con successo."
     
     # Attende 500ms prima del prossimo invio
     sleep "$DELAY"

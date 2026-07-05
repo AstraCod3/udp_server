@@ -43,33 +43,40 @@ namespace ns_example_udp_server {
         ns_udp_server::udp_server udpsrv(lport); ///< Global or namespace-scoped server instance.
         udpsrv.start(); 
 
-        // 2. Perform concurrent background application tasks while the network thread handles packet ingestion
-        //oo(); 
-        //td::cout << "Main Thread: Doing some work while server is receiving packets..." << std::endl;
-        //jjfoo();
+        std::thread server_thread([&]() {
+            std::cout << "[Thread] Server UDP start\n";
+            udpsrv.start(); 
+            std::cout << "\n";
+        });
+
+
+        // Perform concurrent background application tasks while the network thread handles packet ingestion
     
         int pack_counter = 0;
         const int pack_received = 10;
 
         std::vector<uint8_t> buff_rx;
         buff_rx.reserve( ns_udp_server::max_size_udp_rx );
+        std::cout << "get_last_packet\n";
 
         while ( pack_counter < pack_received ) {
             udpsrv.get_last_packet( buff_rx );
             pack_counter++;
-
             // Crea una vista ASCII sul vettore esistente senza fare copie in memoria
             std::string_view ascii_view(reinterpret_cast<const char*>(buff_rx.data()), buff_rx.size());
-
             std::cout << " received packet : " << pack_counter << std::endl;
-            //std::cout << " received packet : " << pack_counter << std::endl;
-
+            // std::cout << " received packet : " << pack_counter << std::endl;
         }
+
 
         /* std::cout << " waiting 500ms\n";
         std::this_thread::sleep_for(500ms); */
 
         udpsrv.stop();
+        
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
 
         std::cout << "\n";
         std::cout << "...done!!\n";
