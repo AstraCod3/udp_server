@@ -102,7 +102,14 @@ namespace ns_base_udp_server {
  * @return int 
  */
 int main() {
+    std::cout << "\n";
+    std::cout << " =============================================================\n";
+    std::cout << "                  Running Base Udp Server Example...\n";
+    std::cout << " =============================================================\n";
+    std::cout << "\n";
     int ret = EXIT_SUCCESS;
     ns_base_udp_server::base_main_udp_server();
+    std::cout << "\n";
+    std::cout << "...done!\n";
     return ret;
 }

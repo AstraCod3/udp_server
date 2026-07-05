@@ -21,26 +21,20 @@
 
 #include <stdio.h>
 #include <string.h>
-
 #include <iostream>
 #include <string>
 #include <cstring>  // std::strerror e memset
-
 #include <array>
 #include <vector>
 #include <cstdlib>
-
 #include <sstream>
 #include <mutex>
 
-
 #if defined _WIN64 || _WIN32
-
 //#include <winsock.h>
 #include <winsock2.h>   // Socket,Bind,Recv,etc
 #include <Winbase.h>    // FormatMessage
 #include <Ws2tcpip.h>
-
 #pragma comment (lib, "WS2_32.lib")
 #endif
 
@@ -53,7 +47,6 @@
 // #include <sys/un.h>
 #include <unistd.h>
 #endif
-
 
 /**
  * @namespace ns_udp_server 
@@ -161,7 +154,7 @@ namespace ns_udp_server {
         /**
          * @brief
          */
-        uint8_t* get_offset_next_packet( ) {
+        uint8_t* get_next_offset( ) {
             offset next_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
             if ( !packet_offsets.empty() ) {
@@ -607,7 +600,7 @@ namespace ns_udp_server {
         #endif
 
             // std::unique_lock<std::mutex> lck(mmtx_data);
-            uint8_t* write_ptr = mpackets.get_offset_next_packet();
+            uint8_t* write_ptr = mpackets.get_next_offset();
             // lck.unlock();
 
             // Opzione B: std::vector (dinamico)
@@ -659,7 +652,7 @@ namespace ns_udp_server {
                         mpackets.set_first_packet_recevied();
                     }
                     mpackets.commit_packet( num_bytes_rx );
-                    write_ptr = mpackets.get_offset_next_packet();
+                    write_ptr = mpackets.get_next_offset();
                 }
 
             } // while ( run )

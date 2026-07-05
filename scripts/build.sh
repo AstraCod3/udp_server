@@ -71,14 +71,16 @@ if [ "$build_tests" = "on" ]; then
     cd "$build_tests_path"
 
     if [ ! -d "$deps_path" ]; then
-        echo ""
-        echo "GoogleTest Download and Build"
+        echo "GoogleTest Framework Download and Build"
         git clone https://github.com/google/googletest.git "$deps_path"/googletest
         cmake -S "$deps_path"/googletest -B "$deps_path"/googletest/build -DCMAKE_INSTALL_PREFIX="$deps_path"/out -DINSTALL_GTEST=ON
         cmake --build "$deps_path"/googletest/build --config %build_type% --target install
     else
-        echo "GoogleTest already exist"
+        echo "GoogleTest Framework already exist"
     fi
+
+    echo ""
+    echo "Building Unit Tests"
     cmake "$tests_path" -DCMAKE_BUILD_TYPE="$build_type"
     make
 fi
