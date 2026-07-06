@@ -7,7 +7,7 @@
 `💻 OS: Windows | Linux`
 
 ---
-A multi-platform (Linux/Unix, Windows) **header-only C++ module** developed with the Standard Template Library (STL). Encapsulated in the `ns_usp_server` namespace, it features a **UDP server class with an internal, automated ring-buffer packet manager and custom exception handling**, offering an efficient, zero-configuration solution for real-time systems.
+A multi-platform (Linux/Unix, Windows) **header-only C++ module** developed with the Standard Template Library (STL). Encapsulated in the `ns_udp_server` namespace, it features a **UDP server class with an internal, automated ring-buffer packet manager and custom exception handling**, offering an efficient, zero-configuration solution for real-time systems.
 ---
 
 ### 🚀 Key Features
