@@ -28,19 +28,19 @@ check_race_condition_drd() {
     cmd_valg_drd="valgrind --error-limit=no --tool=drd -s ./$bin_file > $log_file 2>&1"
     echo "Valgrind Test drd run"
     echo " > $cmd_valg_drd"
-    echo ""
     eval $cmd_valg_drd
+    echo ""
 }
 
 check_race_condition_helgrind() { 
     bin_file="$1"
     log_file="$log_path/$bin_file".helgrind."$log_postfix"
-    echo ""
     # cmd_valg_helgrind="valgrind --error-limit=no --tool=helgrind --history-level=approx --log-file="$log_file" -s ./"$bin_file""
     cmd_valg_helgrind="valgrind --error-limit=no --tool=helgrind --history-level=approx -s ./$bin_file > $log_file 2>&1"
     echo "Valgrind Test helgrind"
     echo " > $cmd_valg_helgrind"
     eval "$cmd_valg_helgrind"
+    echo ""
 }
 
 if [ ! -d "$bin_path" ]; then
@@ -58,9 +58,13 @@ echo ""
 
 cd "$bin_path"
 for filename in $(ls -1); do
+    echo ""
+    echo "running : $filename"
+    echo ""
     check_memory_leask "$filename"
     check_race_condition_drd "$filename"
     check_race_condition_helgrind "$filename"
+    echo ""
 done
 
 cd ..

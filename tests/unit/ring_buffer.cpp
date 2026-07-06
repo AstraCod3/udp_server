@@ -33,28 +33,19 @@
 #undef protected
 
 /**
- * @namespace ns_unit_test_packet
+ * @namespace ns_unit_test_ring_buffer 
  * @brief Contains all the Google unit tests
  * @details This namespace isolates test components, mocks, and test fixtures from the production code.
  */
-namespace ns_unit_test_packet {
+namespace ns_unit_test_ring_buffer {
 
     /**
-     * @brief Test suite for the CPacket ring buffer management.
-     * Verifies sequential writes, committed offsets, data integrity, and read operations.
+     * @brief Test suite RingBufferTest
+     * Verifies sequential writes, committed offsets.
      */
-
-    /**
-     * @brief Test suite for the CPacket ring buffer management.
-     * Verifies that pointer tracking, offset updates, and wrap-around logic
-     * operate correctly during mock UDP packet ingestion.
-     */
-    // -----------------------------------------------------------------------------
-    // TEST 1: Basic Write and Commit Cycle
-    // -----------------------------------------------------------------------------
-    TEST(CPacketTest, TestBufferWriteAndCommitCycle) {
+    TEST(RingBufferTest, TestBufferCommitCycle) {
         // 1. Initialize the packet manager
-        ns_udp_server::cpacket packet_manager; 
+        ns_udp_server::ring_buffer packet_manager; 
 
         // 2. Request the initial memory block where the next UDP message should be written
         uint8_t* first_packet_ptr = packet_manager.get_next_offset();
@@ -84,19 +75,20 @@ namespace ns_unit_test_packet {
     }
 
     /**
-     * @brief Test case to verify ring buffer behavior when it reaches its maximum capacity.
+     * @brief Test suite RingBufferTest 
+     * Verifies case to verify ring buffer behavior when it reaches its maximum capacity.
      */
-    TEST(CPacketTest, TestBufferWrapAroundOrFullCondition) {
-        ns_udp_server::cpacket packet_manager;
+    TEST(RingBufferTest, TestBufferWrapAroundOrFullCondition) {
+        ns_udp_server::ring_buffer packet_manager;
         
         // Get the base memory address of the internal raw buffer
-        // (Assuming your buffer variable inside CPacket is named 'buffer_data' or 'm_buffer')
+        // (Assuming your buffer variable inside ring_buffer is named 'buffer_data' or 'm_buffer')
         uint8_t* base_buffer_ptr = packet_manager.get_next_offset();
         ASSERT_NE(base_buffer_ptr, nullptr);
 
         // Fill the buffer to its maximum capacity to force a wrap-around check
         // (Replace 65536 with your actual maximum buffer capacity variable if available, e.g., packet_manager.m_capacity)
-        size_t maximum_capacity = ns_udp_server::cpacket::max_num_bytes; 
+        size_t maximum_capacity = ns_udp_server::ring_buffer::max_num_bytes; 
         packet_manager.commit_packet(maximum_capacity);
 
         // Request a new pointer after filling the entire ring buffer
@@ -113,11 +105,11 @@ namespace ns_unit_test_packet {
         }
     }
 
-    // -----------------------------------------------------------------------------
-    // TEST 2: Data Integrity (Write Raw Data and Read It Back)
-    // -----------------------------------------------------------------------------
-    TEST(CPacketTest, TestWriteAndReadDataIntegrity) {
-        ns_udp_server::cpacket packet_manager;
+    /**
+     * @brief Data Integrity (Write Raw Data and Read It Back) 
+     */
+    TEST(RingBufferTest, TestWriteAndReadDataIntegrity) {
+        ns_udp_server::ring_buffer packet_manager;
 
         // 1. Prepare dummy data to simulate an incoming UDP payload (Decreasing sequence)
         std::vector<uint8_t> mock_payload;
@@ -133,21 +125,11 @@ namespace ns_unit_test_packet {
         
         // 3. Commit the written bytes
         packet_manager.commit_packet(mock_payload.size());
+        packet_manager.set_first_packet_received();
 
-        // 4. Read the data back from the buffer
-        // (Assuming your CPacket class has methods like get_read_ptr() and consume/pop)
-        // Adjust the method names below to match your actual implementation
+        // 4. Read the data back from the ring buffer
         std::vector<uint8_t> read_ptr;
         packet_manager.get_last_packet(read_ptr); 
-        //ASSERT_NE(read_ptr, nullptr) << "Failed to get read pointer.";
-
-        // VERIFICATION: Check if the data read from the buffer matches the written payload
-        /*for (size_t i = 0; i < mock_payload.size(); ++i) {
-            EXPECT_EQ(read_ptr[i], mock_payload[i]) 
-                << "Data mismatch at buffer index " << i 
-                << ". Expected: " << static_cast<int>(mock_payload[i]) 
-                << ", Got: " << static_cast<int>(read_ptr[i]);
-        }*/
 
         // VERIFICATION: Check if the data read from the buffer matches the written payload
         for (size_t i = 0; i < mock_payload.size(); ++i) {
@@ -156,17 +138,13 @@ namespace ns_unit_test_packet {
             EXPECT_EQ(static_cast<int>(read_ptr[i]), static_cast<int>(mock_payload[i]))
                 << "Data mismatch at buffer index " << i;
         }
-
-        // 5. Release/Consume the read bytes to advance the read tracker
-        //size_t bytes_consumed = mock_payload.size();
-        // packet_manager.pop_or_consume(bytes_consumed); 
     }
 
-    // -----------------------------------------------------------------------------
-    // TEST 3: Interleaved Read and Write Operations
-    // -----------------------------------------------------------------------------
-    /*TEST(CPacketTest, TestInterleavedReadAndWrite) {
-        ns_udp_server::cpacket packet_manager;
+    /**
+     * @brief Interleaved Read and Write Operations
+     */
+    /*TEST(RingBufferTest, TestInterleavedReadAndWrite) {
+        ns_udp_server::ring_buffer packet_manager;
 
         // Step 1: Write Packet A (100 bytes)
         uint8_t* write_ptr_A = packet_manager.get_next_offset();
@@ -187,11 +165,11 @@ namespace ns_unit_test_packet {
         EXPECT_EQ(read_ptr_2, write_ptr_B) << "Read pointer failed to advance to Packet B.";
     }*/
 
-    // -----------------------------------------------------------------------------
-    // TEST 4: Wrap-Around Logic
-    // -----------------------------------------------------------------------------
-    /*TEST(CPacketTest, TestBufferWrapAroundCondition) {
-        ns_udp_server::cpacket packet_manager;
+    /**
+     * Wrap-Around Logic
+     */
+    /*TEST(RingBufferTest, TestBufferWrapAroundCondition) {
+        ns_udp_server::ring_buffer packet_manager;
         
         uint8_t* base_buffer_ptr = packet_manager.get_next_offset();
         ASSERT_NE(base_buffer_ptr, nullptr);

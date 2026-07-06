@@ -80,7 +80,7 @@ if [ "$build_tests" = "on" ]; then
     fi
 
     echo ""
-    echo "Building Unit Tests"
+    echo "Building Unit and Integration Tests"
     cmake "$tests_path" -DCMAKE_BUILD_TYPE="$build_type"
     make
 fi

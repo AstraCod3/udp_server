@@ -23,12 +23,14 @@
 #include <string.h>
 #include <iostream>
 #include <string>
-#include <cstring>  // std::strerror e memset
+#include <cstring> // std::strerror e memset
 #include <array>
 #include <vector>
 #include <cstdlib>
+#include <cmath> // std::abs
 #include <sstream>
 #include <mutex>
+#include <condition_variable>
 
 #if defined _WIN64 || _WIN32
 //#include <winsock.h>
@@ -50,14 +52,14 @@
 
 /**
  * @namespace ns_udp_server 
- * @brief Gather all class, struct, enum etc to handling thread
+ * @brief Gather all class, struct, to handling udp server
  */
 namespace ns_udp_server {
 
     /**
-     * @brief
+     * @brief Max theoretical UDP payload size.
      */
-    const std::size_t max_size_udp_rx = 65535; ///< Max theoretical UDP payload size.
+    const std::size_t max_size_udp_rx = 65535;
 
     /**
      * @class udp_server_error 
@@ -71,7 +73,7 @@ namespace ns_udp_server {
 
         /**
          * @brief Constructor for udp_server_error.
-         * @param message The detailed error message.
+         * @param _msg [in] The detailed of error message.
          */
         explicit udp_server_error( const std::string& _msg ) :
             std::runtime_error( _msg ) { }
@@ -91,25 +93,25 @@ namespace ns_udp_server {
 
 
     /**
-     * @struct cpacket
+     * @struct ring_buffer
      * @brief Monolithic single-buffer circular ring engine for high-speed UDP ingestion.
      */
-    struct cpacket {
+    struct ring_buffer {
 
         public :
 
         /**
-         * @brief
+         * @brief Costructor ring_buffer
          * @throw
          */
-        cpacket() : mfirst_packet(false) {
+        ring_buffer() : mfirst_packet(false) {
             try {
                 // If this massive allocation fails, C++ automatically throws std::bad_alloc
                 mdata = std::make_unique<std::array<uint8_t, max_num_bytes>>();
             }
             catch (const std::bad_alloc& e) {
                 // std::cerr << "Allocation failed! Error details: " << e.what() << std::endl;
-                throw udp_server_error( "Called \"cpacket::cpacket()\" Allocation failed! Error details : " + std::string(e.what()) );
+                throw udp_server_error( "Called \"ring_buffer::ring_buffer()\" Allocation failed! Error details : " + std::string(e.what()) );
             }
         }
 
@@ -121,22 +123,22 @@ namespace ns_udp_server {
             std::unique_lock<std::mutex> lck( mmtx_offsets );
             offset tmp_offset;
             ///< First packet
-            if ( packet_offsets.empty() ) {
+            if ( mvoffsetss.empty() ) {
                 // begin = 0
                 tmp_offset.end = bytes_len - 1;
-                packet_offsets.push_back( tmp_offset ); 
+                mvoffsetss.push_back( tmp_offset ); 
                 mcv_first_packet.notify_one();
             }
             else {
             ///< Other packets
-                offset last_offset = packet_offsets.back();
+                offset last_offset = mvoffsetss.back();
                 tmp_offset.begin = last_offset.end + 1;
                 if ( tmp_offset.begin >= max_num_bytes )
                     tmp_offset.begin = tmp_offset.begin % max_num_bytes;  
                 tmp_offset.end = tmp_offset.begin + bytes_len - 1;
                 if ( tmp_offset.end >= max_num_bytes )
                     tmp_offset.end = tmp_offset.end % max_num_bytes;
-                packet_offsets.push_back( tmp_offset ); 
+                mvoffsetss.push_back( tmp_offset ); 
             }
         }
 
@@ -152,13 +154,13 @@ namespace ns_udp_server {
        //  }
 
         /**
-         * @brief
+         * @brief Get offset of rung buffer
          */
         uint8_t* get_next_offset( ) {
             offset next_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
-            if ( !packet_offsets.empty() ) {
-                next_offset = packet_offsets.back();   
+            if ( !mvoffsetss.empty() ) {
+                next_offset = mvoffsetss.back();   
                 next_offset.end = next_offset.end + 1; 
             }
             lck.unlock();
@@ -170,27 +172,26 @@ namespace ns_udp_server {
         }
 
         /**
-         * @brief
+         * @brief Data Copy of the last packet received
+         * @param last_packet_ [out] The destination buffer where the packet payload will be copied. 
          */
         void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
-
             waiting_first_packet_received();
-
             offset last_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
-            last_offset = packet_offsets.back();   
+            last_offset = mvoffsetss.back();   
             lck.unlock();
-
-            last_packet_.resize(last_offset.end - last_offset.end);
+            double dsize = std::abs(static_cast<double>(last_offset.end-last_offset.begin));
+            last_packet_.reserve( std::abs( static_cast<int>(dsize)) );
             auto src_begin = mdata->begin() + last_offset.begin;
             auto src_end = mdata->begin() + last_offset.end;
             std::copy(src_begin, src_end, last_packet_.begin());
         }
 
-        /*
-         * @brief
+        /**
+         * @brief Set the flag and notify waiting threads when the first packet is received 
          */
-        void set_first_packet_recevied() {
+        void set_first_packet_received() {
             std::unique_lock<std::mutex> lck_fp( mmtx_first_packet );
             if ( !mfirst_packet ) {
                 mfirst_packet = true;
@@ -198,8 +199,8 @@ namespace ns_udp_server {
             }
         }
 
-        /*
-         * @brief This function IS BLOCKING. until the first packet is received
+        /**
+         * @brief This function IS BLOCKING, until the first packet is received
          */
         void waiting_first_packet_received() {
             std::unique_lock<std::mutex> lck_fp( mmtx_first_packet );
@@ -213,22 +214,22 @@ namespace ns_udp_server {
         
 
         /**
-         * @brief
+         * @brief Total slots available in the ring buffer. 
          */
-        static constexpr std::size_t max_packets = 10; ///< Total slots available in the ring buffer.
+        static constexpr std::size_t max_packets = 10;
 
         /**
-         * @brief
+         * @brief Total bytes of ring buffer.
          */
         static constexpr std::size_t max_num_bytes = max_size_udp_rx * max_packets;
         
         /**
-         * @brief
+         * @brief Mutex for mdata
          */
         std::mutex mmtx_data;
 
         /**
-         * @brief Flat contiguous memory block allocating ~655 Megabytes on the heap.
+         * @brief Flat contiguous memory block allocating on the heap.
          */
         std::unique_ptr< std::array<uint8_t, max_num_bytes> > mdata;
 
@@ -243,30 +244,29 @@ namespace ns_udp_server {
         };
 
         /**
-         * @brief
+         * @brief Mutex to serialize access to the packet offsets vector
          */
         std::mutex mmtx_offsets;
 
         /**
-         * @brief
+         * @brief Vector storing the offset information for each buffered packet
          */
-        std::vector< offset > packet_offsets;
+        std::vector< offset > mvoffsetss;
 
         /**
-         * @brief
+         * @brief Mutex to synchronize status and operations on the very first packet 
          */
         std::mutex mmtx_first_packet;
 
         /**
-         * @brief
+         * @brief Condition Variable to notify the first packet is received
          */
         std::condition_variable mcv_first_packet;
 
-        /*
-         * @brief
+        /**
+         * @brief Flag indicating whether the first packet has been received
          */
         bool mfirst_packet = false;
-
 
     };
 
@@ -348,7 +348,7 @@ namespace ns_udp_server {
 
 
         void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
-            mpackets.get_last_packet( last_packet_ );
+            mring_buffer.get_last_packet( last_packet_ );
         }
 
         protected:
@@ -381,7 +381,7 @@ namespace ns_udp_server {
         /**
          * @brief 
          */
-        cpacket mpackets;
+        ring_buffer mring_buffer;
 
     #if defined _WIN64 || _WIN32
         /**
@@ -600,7 +600,7 @@ namespace ns_udp_server {
         #endif
 
             // std::unique_lock<std::mutex> lck(mmtx_data);
-            uint8_t* write_ptr = mpackets.get_next_offset();
+            uint8_t* write_ptr = mring_buffer.get_next_offset();
             // lck.unlock();
 
             // Opzione B: std::vector (dinamico)
@@ -626,7 +626,6 @@ namespace ns_udp_server {
                 }
             #endif
 
-
             #if defined __linux__ || __unix__
                 size_client = sizeof(client);
                 errno = 0;
@@ -649,10 +648,10 @@ namespace ns_udp_server {
                 if ( num_bytes_rx >= 0 ) {
                     if ( !first_packet_received ) {
                         first_packet_received = true;
-                        mpackets.set_first_packet_recevied();
+                        mring_buffer.set_first_packet_received();
                     }
-                    mpackets.commit_packet( num_bytes_rx );
-                    write_ptr = mpackets.get_next_offset();
+                    mring_buffer.commit_packet( num_bytes_rx );
+                    write_ptr = mring_buffer.get_next_offset();
                 }
 
             } // while ( run )
