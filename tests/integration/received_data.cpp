@@ -38,8 +38,8 @@ void send_test_packet(const std::string& message) {
         sockaddr_in server_addr{};
         server_addr.sin_family = AF_INET;
         server_addr.sin_port = htons(TEST_PORT);
-        //inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
-        inet_pton(AF_INET, "192.168.1.5", &server_addr.sin_addr);
+        inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+        //inet_pton(AF_INET, "192.168.1.5", &server_addr.sin_addr);
 
         // Transmit the raw data packet
         sendto(client_fd, message.c_str(), message.length(), 0, 
@@ -63,6 +63,7 @@ int main() {
         // 2. Launch the server loop inside a dedicated background thread to prevent blocking
         std::thread server_thread([&server]() {
             server.start(); 
+            std::cout << "[TEST] Udp server started\n";
         });
 
         // Small delay to ensure the server socket completes binding operations
@@ -70,6 +71,7 @@ int main() {
 
         // 3. Dispatch a test payload via the mock UDP client
         std::string sent_payload = "Hello_UDP_RingBuffer";
+        std::cout << "[TEST] Sending packet size : " << sent_payload.size() << std::endl;
         std::cout << "[TEST] Sending packet: " << sent_payload << std::endl;
         send_test_packet(sent_payload);
 
@@ -83,12 +85,13 @@ int main() {
 
 
         // Loop through each byte and cast it to char to print the letter
-        for (uint8_t byte : last_packet) {
-            std::cout << static_cast<char>(byte) << " ";
-        }
+        //for (uint8_t byte : last_packet) {
+        //    std::cout << static_cast<char>(byte) << " ";
+        //}
+        //std::cout<<"\n";
 
         std::string str_last_packet(last_packet.begin(), last_packet.end());
-        std::cout << "[TEST] Packet size from server: " << last_packet.size() << std::endl;
+        std::cout << "[TEST] Received packet size : " << last_packet.size() << std::endl;
         std::cout << "[TEST] Packet fetched from server: " << str_last_packet << std::endl;
 
         // Assertive verification of the integration pipeline

@@ -14,14 +14,14 @@ A multi-platform (Linux/Unix, Windows) **header-only C++ module** developed with
 
 * **Header-Only Solution**: Just include `udp_server.hpp` in your project. No external compilation, linking, or complex build systems required.
 * **Cross-Platform**: Full native support for both Windows (Winsock) and Linux/Unix sockets under a unified API.
-* **Automated Packet Management**: Uses an internal, thread-safe ring buffer (`cpacket`) to queue and synchronize incoming data automatically under the hood.
+* **Automated Packet Management**: Uses an internal, thread-safe ring buffer (`ring_buffer`) to queue and synchronize incoming data automatically under the hood.
 * **Robust Exception Handling**: Includes a specialized `udp_server_error` class to catch and manage socket or synchronization errors predictably.
-* **Clean Architecture**: Everything is safely isolated inside the `ns_usp_server` namespace to avoid naming conflicts.
+* **Clean Architecture**: Everything is safely isolated inside the `ns_udp_server` namespace to avoid naming conflicts.
 
 
 ## 🚀 How to use
 
-Follow these steps to integrate and manage threads in your application:
+Follow these steps to integrate and manage in your application:
 
 1. **Include the Header File**
    Start by including the main header file:
@@ -29,41 +29,40 @@ Follow these steps to integrate and manage threads in your application:
    #include "udp_server.hpp"
    ```
 
-2. **Create a Subclass**
+2. **Create object udp server**
+   Instance of object with the local port argument of the costructor
+   ```cpp
+   ns_udp_server::udp_server my_udp_server(1581)
 
-3. **Implement the Virtual Function**
-
-4. **Create the Thread**
-   Call the `create()` function to initialize the thread. 
+3. **Start the udp server**
+   Call the `start()` function to start the udp server
    > ⚠️ **Note:** This function must be called first and is **BLOCKING**.
 
-5. **Run the Thread**
-   Call the `run()` function when you are ready to start execution.
-   > ⚡ **Note:** This function is **NON-BLOCKING**.
+5. **Get Data**
+   Call the `get_last_packet()` function to obtain the message from udp server.
+   > ⚡ **Note:** This function is **BLOCKING** only the first packet
 
-6. **Destroy the Thread**
-   After calling `run()`, you must call `destroy()` to clean up resources. 
+6. **Stop the udp server**
+   After calling `stop()` the usp server shall be stopped.
    * This function is **BLOCKING**.
-   * Failing to call `destroy()` after `run()` will raise an exception.
-   * You can call `destroy()` to terminate the thread, but ensure it happens *after* `create()`, otherwise an exception will be thrown.
 
 ---
 
 ### 💡 Examples
-For a practical implementation, please check the `example_mythread()` function inside the **`test/src/test_cthread_base.cpp`** file.
+For a practical implementation, please check the `ns_base_udp_server` namespace inside the **`example/base_udp_server.cpp`** file.
 
 ---
 
 ## 📂 Project Structure
 
 ```text
-├── thread_base/ ............... # Source code of the library
-├── test/ ...................... # Unit tests and debugging tools
+├── udp_server/ ................. # Source code of the library
+├── examples/ ................... # Source Code of the examples
+├── tests/ ...................... # Unit tests and debugging tools
+│   ├── integration ................ # Source code of the integration tests
+│   ├── unit ....................... # Source code of the unit tests
 │   ├── CMakeLists.txt ............. # Main CMake configuration file
-│   ├── quick_sort.hpp ............. # Example of quick sort algorithm
-│   ├── google_unit_test.hpp ....... # Google Test framework
-│   ├── test.cpp ................... # Main test entry point
-│   └── failure.hpp ................ # Test failure cases and utilities
+│   └── README.md .................. # Project documentation file
 ├── scripts/ ................... # Cross-platform automation and build tools (see details below)
 └── README.md .................. # Project documentation file
 ```
@@ -93,10 +92,10 @@ Follow these steps to build and run the test suite:
 
 2. **Build the project**  
    Run the appropriate script for your operating system from the root folder:
-   * **Linux/Unix:** `./scripts/build.sh`
-   * **Windows:** `.\scripts\build.cmd`
+   * **Linux/Unix:** `./scripts/build.sh debug`
+   * **Windows:** `.\scripts\build.cmd release`
    
-   > ℹ️ *Note: The `CMakeLists.txt` file automatically loops through all source files in the `src/` directory and builds a separate executable for each one.*
+   > ℹ️ *Note: The `CMakeLists.txt` file automatically loops through all source files in the `test/unit`,`test/integration` or `example/` directory and builds a separate executable for each one.*
 
 3. **Run the tests**  
    Execute the run scripts to test your code:
@@ -108,7 +107,6 @@ Follow these steps to build and run the test suite:
 ---
 
 ### 🔨 Dynamically Generated Items (After Build/Run)
-
 
 ```text
 ├── bin/ ....................... # Created after build; contains the compiled executables

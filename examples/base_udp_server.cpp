@@ -21,7 +21,7 @@
 
 #include "../udp_server/udp_server.hpp"
 
-//using std::chrono_literals;
+using namespace std::chrono_literals;
 
 namespace ns_base_udp_server {
 
@@ -31,29 +31,27 @@ namespace ns_base_udp_server {
      */
     void base_main_udp_server() ;
     void base_main_udp_server() {
-        std::cout << "\n";
-        std::cout << "Running base_main_udp_server start ...\n";
-        std::cout << "\n";
-        
         unsigned short lport = 1581;
-        std::cout << " local port : " << lport << "\n";
+        std::cout << "local port : " << lport << "\n";
         ns_udp_server::udp_server udpsrv(lport);
 
-        std::thread server_thread([&]() {
+        std::thread server_thread([&udpsrv]() {
             std::cout << "[Thread] Server UDP start\n";
             udpsrv.start(); 
-            std::cout << "\n";
         });
+        server_thread.detach();
 
+        std::this_thread::sleep_for(3000ms);
     
-        int pack_counter = 0;
-        const int pack_received = 10;
         std::vector<uint8_t> buff_rx;
 
-        buff_rx.reserve( ns_udp_server::max_size_udp_rx );
+        std::cout << "get last packet ... ... ";
+        udpsrv.get_last_packet( buff_rx );
+        std::cout << "recevied\n";
+        std::cout << "size last packet : " << buff_rx.size() << "\n";
 
-        //auto print_hex = [](unsigned char byte) {
         auto print_hex = [](uint8_t byte) {
+            std::cout << "HEX:\n";
             std::cout << std::hex          // Imposta la base esadecimale
                       << std::setw(2)      // Forza la larghezza a 2 caratteri
                       << std::setfill('0') // Aggiunge lo '0' iniziale se necessario
@@ -61,37 +59,18 @@ namespace ns_base_udp_server {
                       << " ";              // Spazio di separazione
         };
 
-        while ( pack_counter < pack_received ) {
-            udpsrv.get_last_packet( buff_rx );
-            pack_counter++;
+        std::for_each(buff_rx.begin(), buff_rx.end(), print_hex);
 
-//          std::string_view ascii_view(reinterpret_cast<const char*>(buff_rx.data()), buff_rx.size());
-//          std::cout << " received packet : " << pack_counter << std::endl;
-
-            std::cout << "size last packet : " << buff_rx.size() << "\n";
-            std::cout << "HEX:\n";
-            std::for_each(buff_rx.begin(), buff_rx.end(), print_hex);
-
-
-            buff_rx.clear(); 
-            // std::cout << " received packet : " << pack_counter << std::endl;
-        }
-
-        /*
-           std::cout << " waiting 500ms\n";
-           std::this_thread::sleep_for(500ms);
-         */
-
+        std::cout << "udp server ... ... ";
         udpsrv.stop();
-        
+        std::cout << "stop\n";
+            
+        std::cout << "waiting udp server thread joinable\n";
         if (server_thread.joinable()) {
+            std::cout << "udp server thread ... ... ";
             server_thread.join();
+            std::cout << "joined\n";
         }
-
-        std::cout << "\n";
-        std::cout << "...done!!\n";
-        std::cout << "\n";
-
     }
 }
 

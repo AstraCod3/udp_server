@@ -34,7 +34,8 @@ do
     # 1. Takes the hexadecimal string (e.g., "fffefd...0100")
     # 2. xxd -r -p converts it into the corresponding raw binary bytes
     # 3. nc -u sends the UDP packet to the target server
-    echo -n "$HEX_SEQUENCE" | xxd -r -p | nc -u -w 1 "$SERVER_IP" "$SERVER_PORT"
+    # echo -n "$HEX_SEQUENCE" | xxd -r -p | nc -u -w 1 "$SERVER_IP" "$SERVER_PORT"
+    echo -n "$HEX_SEQUENCE" | xxd -r -p > /dev/udp/"$SERVER_IP"/"$SERVER_PORT"
 
     COUNT=$((i+1))
     echo "[Packet $COUNT/$LOOP_COUNT] Sequence sent successfully."

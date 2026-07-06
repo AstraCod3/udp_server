@@ -62,6 +62,24 @@ namespace ns_udp_server {
     const std::size_t max_size_udp_rx = 65535;
 
     /**
+     * @enum server_status
+     * @brief Represents the operational lifecycle states of the UDP server.
+     * 
+     * This scoped enumeration provides thread-safe visibility into the current 
+     * execution phase of the network engine.
+     */
+    enum class SERVER_STATUS {
+        /** @brief The server is instantiated and undergoing initial resource configuration. */
+        INIT,
+        /** @brief The server socket initialization has succeeded and the system is ready to launch. */
+        START,
+        /** @brief The main execution loop is active, processing and queuing incoming UDP packets. */
+        RUNNING,
+        /** @brief A shutdown signal has been triggered; the loop will unblock and terminate execution safely. */
+        STOP
+    };
+
+    /**
      * @class udp_server_error 
      * @brief Custom exception thrown when a operation is failed.
      * @details Inherits from std::runtime_error to maintain compatibility with standard 
@@ -117,28 +135,28 @@ namespace ns_udp_server {
 
         /**
          * @brief Commits the newly received packet size into history and advances the internal circular cursor.
-         * @param bytes_len The exact number of bytes returned by the recvfrom call.
+         * @param bytes_len [in] Bytes_len The exact number of bytes returned by the recvfrom call.
          */
         void commit_packet( const std::size_t& bytes_len ) {
             std::unique_lock<std::mutex> lck( mmtx_offsets );
             offset tmp_offset;
             ///< First packet
-            if ( mvoffsetss.empty() ) {
-                // begin = 0
-                tmp_offset.end = bytes_len - 1;
-                mvoffsetss.push_back( tmp_offset ); 
+            if ( moffsets.empty() ) {
+                tmp_offset.begin = 0;
+                tmp_offset.end = bytes_len;
+                moffsets.push_back( tmp_offset ); 
                 mcv_first_packet.notify_one();
             }
             else {
             ///< Other packets
-                offset last_offset = mvoffsetss.back();
+                offset last_offset = moffsets.back();
                 tmp_offset.begin = last_offset.end + 1;
                 if ( tmp_offset.begin >= max_num_bytes )
                     tmp_offset.begin = tmp_offset.begin % max_num_bytes;  
                 tmp_offset.end = tmp_offset.begin + bytes_len - 1;
                 if ( tmp_offset.end >= max_num_bytes )
                     tmp_offset.end = tmp_offset.end % max_num_bytes;
-                mvoffsetss.push_back( tmp_offset ); 
+                moffsets.push_back( tmp_offset ); 
             }
         }
 
@@ -159,8 +177,8 @@ namespace ns_udp_server {
         uint8_t* get_next_offset( ) {
             offset next_offset;
             std::unique_lock<std::mutex> lck( mmtx_offsets );
-            if ( !mvoffsetss.empty() ) {
-                next_offset = mvoffsetss.back();   
+            if ( !moffsets.empty() ) {
+                next_offset = moffsets.back();   
                 next_offset.end = next_offset.end + 1; 
             }
             lck.unlock();
@@ -176,16 +194,44 @@ namespace ns_udp_server {
          * @param last_packet_ [out] The destination buffer where the packet payload will be copied. 
          */
         void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
+
             waiting_first_packet_received();
+
             offset last_offset;
-            std::unique_lock<std::mutex> lck( mmtx_offsets );
-            last_offset = mvoffsetss.back();   
-            lck.unlock();
-            double dsize = std::abs(static_cast<double>(last_offset.end-last_offset.begin));
-            last_packet_.reserve( std::abs( static_cast<int>(dsize)) );
-            auto src_begin = mdata->begin() + last_offset.begin;
-            auto src_end = mdata->begin() + last_offset.end;
-            std::copy(src_begin, src_end, last_packet_.begin());
+            {
+                // Lock the mutex and fetch the last offset from the shared vector
+                std::unique_lock<std::mutex> lck( mmtx_offsets );
+                last_offset = moffsets.back();
+            } // The lock is automatically released here (RAII scoping)
+
+            // Clear previous data from the destination vector
+            last_packet_.clear();
+
+            // SCENARIO 1: Linear packet (End is after or equal to Begin)
+            if (last_offset.end >= last_offset.begin) {
+                size_t packet_size = last_offset.end - last_offset.begin;
+
+                // Resize actualizes the size, allowing std::copy or assignment to work safely
+                last_packet_.resize(packet_size);
+
+                auto src_begin = mdata->begin() + last_offset.begin;
+                auto src_end = mdata->begin() + last_offset.end;
+                std::copy(src_begin, src_end, last_packet_.begin());
+            }
+            // SCENARIO 2: Wrapped packet (End wrapped around to the beginning of the ring buffer)
+            else {
+                // Segment 1: From Begin to the very end of the ring buffer vector
+                size_t segment1_size = mdata->size() - last_offset.begin;
+                // Segment 2: From the beginning of the ring buffer vector to End
+                size_t segment2_size = last_offset.end;
+
+                last_packet_.resize(segment1_size + segment2_size);
+
+                // Copy first chunk (tail of the buffer)
+                std::copy(mdata->begin() + last_offset.begin, mdata->end(), last_packet_.begin());
+                // Copy second chunk (head of the buffer)
+                std::copy(mdata->begin(), mdata->begin() + last_offset.end, last_packet_.begin() + segment1_size);
+            }
         }
 
         /**
@@ -210,8 +256,7 @@ namespace ns_udp_server {
         }
 
 
-        private : 
-        
+        private :
 
         /**
          * @brief Total slots available in the ring buffer. 
@@ -251,7 +296,7 @@ namespace ns_udp_server {
         /**
          * @brief Vector storing the offset information for each buffered packet
          */
-        std::vector< offset > mvoffsetss;
+        std::vector< offset > moffsets;
 
         /**
          * @brief Mutex to synchronize status and operations on the very first packet 
@@ -289,10 +334,7 @@ namespace ns_udp_server {
                 merror_code_num(0),
                 merror_code_str(""),
                 msocket(0) {
-            /*if ( _lport > 65535 ) {
-                mlocal_port = 0 ;
-                throw udp_server_error( "Called \"uudp_server::dp_server_base()\" local port : " + std::to_string( _port ) + " > 65535");
-            }*/
+            m_status.store(SERVER_STATUS::INIT);
         }
 
         /**
@@ -305,6 +347,7 @@ namespace ns_udp_server {
          * @throw udp_server_error 
          */
         void start( ) {
+            m_status.store(SERVER_STATUS::START);
         #if defined _WIN64 || _WIN32
             WSAData data;
             ret = WSAStartup(MAKEWORD(2, 2), &data);
@@ -319,12 +362,62 @@ namespace ns_udp_server {
         }
 
         /**
-         * @brief
+         * @brief Gracefully stops the UDP server by updating its status and unblocking the receive thread.
          */
-        void stop( ) {
-            close_socket();
+        void stop() {
+            m_status.store(SERVER_STATUS::STOP);
+
+        #if defined(_WIN64) || defined(_WIN32)
+            SOCKET wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
+                if (wake_sock != INVALID_SOCKET) {
+            #elif defined(__linux__) || defined(__unix__)
+                int wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
+                if (wake_sock >= 0) {
+            #endif
+                    sockaddr_in loopback_addr{};
+                    loopback_addr.sin_family = AF_INET;
+                    loopback_addr.sin_port = htons(mlocal_port);
+                    inet_pton(AF_INET, "127.0.0.1", &loopback_addr.sin_addr);
+
+                    // Transmit 0 bytes payload. This safely wakes up recvfrom() without carrying data.
+                    sendto(wake_sock, nullptr, 0, 0, reinterpret_cast<struct sockaddr*>(&loopback_addr), sizeof(loopback_addr));
+
+                #if defined(_WIN64) || defined(_WIN32)
+                    closesocket(wake_sock);
+                #elif defined(__linux__) || defined(__unix__)
+                    close(wake_sock);
+                #endif
+                }
+
+                bool err_close = false;
+                std::unique_lock<std::mutex> lck(mmtx_data);
+
+            #if defined(_WIN64) || defined(_WIN32)
+                // On Windows, msocket might be checked against INVALID_SOCKET
+                if (msocket != INVALID_SOCKET) {
+                    if (closesocket(msocket) == SOCKET_ERROR) {
+                        err_close = true;
+                    }
+                    msocket = INVALID_SOCKET;
+                }
+            #elif defined(__linux__) || defined(__unix__)
+                if (msocket != -1) {
+                    if (close(msocket) != 0) {
+                        err_close = true;
+                    }
+                    msocket = -1;
+                }
+            #endif
+
+            lck.unlock();
+
+            // If an error occurred during shutdown, we log it instead of throwing an exception
+            if (err_close) {
+                set_err_sys();
+                throw udp_server_error("Exception \"udp_server::stop()\"", get_error_code_num(), get_error_code_str() );
+            }
         }
-		
+
         /**
          * @brief 
          */
@@ -385,17 +478,27 @@ namespace ns_udp_server {
 
     #if defined _WIN64 || _WIN32
         /**
-         * @brief 
+         * @brief Socket File Descriptor
          */
         SOCKET msocket;
     #endif
 
     #if defined __linux__ || __unix__
         /**
-         * @brief 
+         * @brief Socket File Descriptor
          */
         int msocket;
     #endif
+
+        /**
+         * @brief Atomic variable tracking the absolute current runtime status of the server.
+         *
+         * This variable is accessed concurrently across multiple execution threads
+         * (e.g., the worker loop thread and the control thread calling stop()).
+         * Using std::atomic guarantees strict sequential consistency and prevents
+         * data races without the heavy overhead of standard mutexes.
+         */
+        std::atomic<SERVER_STATUS> m_status{ SERVER_STATUS::INIT };
 
         /**
          * @brief
@@ -456,34 +559,6 @@ namespace ns_udp_server {
             }
         }
 
-        /**
-         * @brief
-         */
-		void close_socket( ) {
-            bool err_close = false;
-            std::unique_lock<std::mutex> lck(mmtx_data);
-
-        #if defined _WIN64 || _WIN32
-            closesocket(msocket);
-            if ( WSACleanup() != EXIT_SUCCESS) {
-                set_err_sys();
-                throw udp_server_error ("Called \"udp_server::close_socket() WSACleanup() != EXIT_SUCCESS\"", get_error_code_num(), get_error_code_str() );
-            }
-        #endif
-
-        #if defined __linux__ || __unix__
-            if ( close(msocket) != 0 ) {
-                err_close = true;
-            }
-        #endif
-
-            if ( err_close ) {
-                set_err_sys();
-                throw udp_server_error ("Called \"udp_server::close_socket()\"", get_error_code_num(), get_error_code_str() );
-            }
-
-            lck.unlock();
-        }
 
         /**
          * @brief 
@@ -602,12 +677,10 @@ namespace ns_udp_server {
             // std::unique_lock<std::mutex> lck(mmtx_data);
             uint8_t* write_ptr = mring_buffer.get_next_offset();
             // lck.unlock();
-
-            // Opzione B: std::vector (dinamico)
-            //unsigned char buffer[max_size_udp_rx];
-            //unsigned char* write_ptr = &buffer[0];
+            m_status.store(SERVER_STATUS::RUNNING);
 
             while ( run ) {
+
                 std::memset(&client, 0, sizeof(client));
 
             #if defined _WIN64 || _WIN32
@@ -644,6 +717,13 @@ namespace ns_udp_server {
                     break;
                 }
             #endif
+
+                SERVER_STATUS current_state = m_status.load();
+
+                // 1. Check if a shutdown signal was issued while we were blocked in the kernel
+                if ( current_state == SERVER_STATUS::STOP )
+                    break; // Break the while loop instantly, ignoring any dummy or partial data
+
 
                 if ( num_bytes_rx >= 0 ) {
                     if ( !first_packet_received ) {
