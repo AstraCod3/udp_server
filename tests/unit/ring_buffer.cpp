@@ -14,8 +14,6 @@
  * @def
  */
 
-//#include <future>
-//#include <chrono>
 #include <atomic>
 #include <iostream>
 #include <cstdint>
@@ -23,7 +21,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
 
 // Temporary bypass of access modifiers to test internal ring buffer pointers
 #define private public
