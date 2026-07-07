@@ -106,7 +106,7 @@ The project provides automation tools inside the `scripts/` directory to standar
 Follow these steps to build and run the test suite:
 
 1. **Add your test files**  
-   Place your source files inside the `src/` directory and ensure your main entry point is added to `src/test.cpp`.
+   Place your source files inside the `test/` directory and ensure your main entry point is configured properly.
 
 2. **Build the project**  
    Run the appropriate script for your operating system from the root folder:
