@@ -58,6 +58,3 @@ done
 
 cd "$current_path"
 
-echo ""
-echo "... done!"
-echo ""

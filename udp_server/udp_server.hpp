@@ -789,18 +789,21 @@ namespace ns_udp_server {
                                     &size_client );
 
                 if ( num_bytes_rx < 0 ) {
+                    const int err = errno; // Capture the native system error code (e.g., EBADF = 9)
+                    // Check if the failure was caused by an intentional server shutdown sequence
+                    if ( mstatus.load(std::memory_order_relaxed) == SERVER_STATUS::STOP || err == 9 || err == 4 ) {
+                        break; // Break the while loop instantly, ignoring the socket teardown error
+                    }
+
+                    // Genuine network or hardware failure: log the error and propagate the exception
                     set_err_sys();
                     throw udp_server_error( "Called \"udp_server::recvfrom() < 0\"", get_error_code_num(), get_error_code_str() );
-                    break;
                 }
             #endif
 
-                SERVER_STATUS current_state = mstatus.load();
-
-                // 1. Check if a shutdown signal was issued while we were blocked in the kernel
-                if ( current_state == SERVER_STATUS::STOP )
+                // 1. Check if a shutdown signal was issued while we were blocked in the kernel (for dummy packet unblocks)
+                if ( mstatus.load(std::memory_order_relaxed) == SERVER_STATUS::STOP )
                     break; // Break the while loop instantly, ignoring any dummy or partial data
-
 
                 if ( num_bytes_rx >= 0 ) {
                     if ( !first_packet_received ) {

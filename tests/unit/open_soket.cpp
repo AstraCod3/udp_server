@@ -60,39 +60,41 @@ namespace ns_unit_test_open_socket {
      */
     TEST(OpenSocket, FailOnDuplicatePort) {
         const unsigned short shared_port = 1582;
-        
+
         try {
-            // Act 1: Initialize the first server on the designated port
+            // 1. Il primo server si inizializza e occupa la porta
             ns_udp_server::udp_server first_server(shared_port);
 
             std::thread server_thread([&first_server]() {
-                first_server.start();
+                first_server.start(); // Entra nella recvfrom() bloccante
             });
-            
-            // Note: If your socket binding (bind_socket) happens inside start() 
-            // and start() is blocking, you should spin it on a separate thread, e.g.:
-            // std::thread s1_thread([&]() { first_server.start(); });
-            // std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Let it bind
-            
-            // Act 2 & Assert: Attempting to bind a second server to the same port must fail
-            // We use EXPECT_THROW to verify that the operation triggers your custom exception.
+
+            // Diamo un piccolo istante al Thread 1 di fare la bind() reale sul sistema operativo
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // 2. Il primo server è attivo. Ora il secondo server tenta di forzare la stessa porta.
+            // GoogleTest verificherà che l'operazione GENERI L'ECCEZIONE e che il secondo server fallisca.
             EXPECT_THROW({
                 ns_udp_server::udp_server second_server(shared_port);
-                second_server.start();
-
-                // If the bind logic is inside start(), call it here to trigger the failure:
-                // second_server.start();
+                second_server.start(); // Questa chiamata DEVE lanciare udp_server_error (Porta occupata)
             }, ns_udp_server::udp_server_error);
 
-            // Clean up the first thread if you started one:
-            // first_server.stop();
-            // if (s1_thread.joinable()) s1_thread.join();
+            // 3. VERIFICA CHE IL PRIMO SERVER SIA ANCORA VIVO E ATTIVO
+            // Se il primo server fosse crashato o si fosse spento, lo stato non sarebbe RUNNING.
+            EXPECT_EQ(first_server.get_status_enum(), ns_udp_server::SERVER_STATUS::RUNNING);
+
+            // 4. PULIZIA FINALE (Obbligatoria in C++ per non lasciare thread orfani alla fine del test)
+            first_server.stop();
+            if (server_thread.joinable()) {
+                server_thread.join();
+            }
 
         } catch (const std::exception& e) {
             FAIL() << "Setup phase failed with an unexpected exception: " << e.what();
         }
     }
-}
+
+} // ns_unit_test_open_socket  
 
 /**
  * @brief Application entry point for the Open Socket Unit Test suite.
@@ -120,5 +122,3 @@ int main(int argc, char* argv[]) {
     std::cout << "..done!\n";
     return result;
 }
-
-
