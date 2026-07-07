@@ -370,7 +370,7 @@ namespace ns_udp_server {
                 merror_code_num(0),
                 merror_code_str(""),
                 msocket(0) {
-            m_status.store(SERVER_STATUS::INIT);
+            mstatus.store(SERVER_STATUS::INIT);
         }
 
         /**
@@ -391,9 +391,18 @@ namespace ns_udp_server {
         udp_server& operator=( const udp_server& ) = delete;
 
         /**
-         * @brief Destructor
+         * @brief Virtual destructor that enforces a safe and orderly server shutdown.
+         * 
+         * Automatically triggers the `stop()` sequence during object destruction. This guarantees 
+         * that the active reception loop is unblocked, ongoing network operations are terminated, 
+         * and all underlying system resources (such as socket descriptors) are fully released.
+         * 
+         * @note Declared `virtual` to ensure robust and safe resource cleanup even if the 
+         *       `udp_server` component is extended through inheritance.
          */
-        virtual ~udp_server( ) { }
+        virtual ~udp_server() {
+            stop();
+        }
 
         /**
          * @brief Initializes the network subsystem and starts the primary UDP reception loop.
@@ -405,7 +414,7 @@ namespace ns_udp_server {
          *                          opened, or if binding to the local port fails.
          */
         void start( ) {
-            m_status.store(SERVER_STATUS::START);
+            mstatus.store(SERVER_STATUS::START);
             open_socket();
             bind_socket();
             receive_from();
@@ -415,55 +424,27 @@ namespace ns_udp_server {
          * @brief Gracefully stops the UDP server by updating its status and unblocking the receive thread.
          */
         void stop() {
-            m_status.store(SERVER_STATUS::STOP);
-
-        #if defined(_WIN64) || defined(_WIN32)
-            SOCKET wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
-                if (wake_sock != INVALID_SOCKET) {
-        #elif defined(__linux__) || defined(__unix__)
-                int wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
-                if (wake_sock >= 0) {
-        #endif
-                    sockaddr_in loopback_addr{};
-                    loopback_addr.sin_family = AF_INET;
-                    loopback_addr.sin_port = htons(mlocal_port);
-                    inet_pton(AF_INET, "127.0.0.1", &loopback_addr.sin_addr);
-
-                    // Transmit 0 bytes payload. This safely wakes up recvfrom() without carrying data.
-                    sendto(wake_sock, nullptr, 0, 0, reinterpret_cast<struct sockaddr*>(&loopback_addr), sizeof(loopback_addr));
-
-                #if defined(_WIN64) || defined(_WIN32)
-                    closesocket(wake_sock);
-                #elif defined(__linux__) || defined(__unix__)
-                    close(wake_sock);
-                #endif
+            switch ( mstatus.load(std::memory_order_relaxed) ) {
+                case ( SERVER_STATUS::STOP) :
+                case ( SERVER_STATUS::INIT) : {
+                    break;
                 }
-
-                bool err_close = false;
-
-            #if defined(_WIN64) || defined(_WIN32)
-                // On Windows, msocket might be checked against INVALID_SOCKET
-                if (msocket != INVALID_SOCKET) {
-                    if (closesocket(msocket) == SOCKET_ERROR) {
-                        err_close = true;
-                    }
-                    msocket = INVALID_SOCKET;
+                case ( SERVER_STATUS::START) :
+                case ( SERVER_STATUS::RUNNING) : {
+                    send_dummy();
+                    close_socket();
+                    break;
                 }
-            #elif defined(__linux__) || defined(__unix__)
-                if (msocket != -1) {
-                    if (close(msocket) != 0) {
-                        err_close = true;
-                    }
-                    msocket = -1;
-                }
-            #endif
-
-
-            // If an error occurred during shutdown, we log it instead of throwing an exception
-            if (err_close) {
-                set_err_sys();
-                throw udp_server_error("Exception \"udp_server::stop()\"", get_error_code_num(), get_error_code_str() );
             }
+            mstatus.store(SERVER_STATUS::STOP);
+        }
+
+        /**
+         * @brief Data Copy of the last packet received
+         * @param last_packet_ [out] The destination buffer where the packet payload will be copied.
+         */
+        void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
+            mring_buffer.get_last_packet( last_packet_ );
         }
 
         /**
@@ -479,14 +460,6 @@ namespace ns_udp_server {
         unsigned short get_local_port() { return mlocal_port; }
 
         /**
-         * @brief Data Copy of the last packet received
-         * @param last_packet_ [out] The destination buffer where the packet payload will be copied.
-         */
-        void get_last_packet( std::vector< uint8_t >& last_packet_ ) {
-            mring_buffer.get_last_packet( last_packet_ );
-        }
-
-        /**
          * @brief Retrieves the current server status as an enum value.
          *
          * @note This function is fully thread-safe and relies on relaxed memory ordering
@@ -495,7 +468,7 @@ namespace ns_udp_server {
          * @return SERVER_STATUS The current active state of the server.
          */
         [[nodiscard]] SERVER_STATUS get_status_enum() const noexcept {
-            return m_status.load(std::memory_order_relaxed);
+            return mstatus.load(std::memory_order_relaxed);
         }
 
         /**
@@ -508,7 +481,7 @@ namespace ns_udp_server {
          */
         [[nodiscard]] std::string_view get_status_str() const noexcept {
             // Fetch the atomic value into a local snapshot before evaluating the switch
-            const SERVER_STATUS current = m_status.load(std::memory_order_relaxed);
+            const SERVER_STATUS current = mstatus.load(std::memory_order_relaxed);
             switch (current) {
                 case SERVER_STATUS::INIT:    return "INIT";
                 case SERVER_STATUS::START:   return "START";
@@ -567,7 +540,7 @@ namespace ns_udp_server {
          * Using std::atomic guarantees strict sequential consistency and prevents
          * data races without the heavy overhead of standard mutexes.
          */
-        std::atomic<SERVER_STATUS> m_status{ SERVER_STATUS::INIT };
+        std::atomic<SERVER_STATUS> mstatus{ SERVER_STATUS::INIT };
 
         /**
          * @brief Initializes the network subsystem and creates a cross-platform UDP socket.
@@ -785,7 +758,7 @@ namespace ns_udp_server {
         #endif
 
             uint8_t* write_ptr = mring_buffer.get_next_offset();
-            m_status.store(SERVER_STATUS::RUNNING);
+            mstatus.store(SERVER_STATUS::RUNNING);
 
             while ( run ) {
 
@@ -822,7 +795,7 @@ namespace ns_udp_server {
                 }
             #endif
 
-                SERVER_STATUS current_state = m_status.load();
+                SERVER_STATUS current_state = mstatus.load();
 
                 // 1. Check if a shutdown signal was issued while we were blocked in the kernel
                 if ( current_state == SERVER_STATUS::STOP )
@@ -839,6 +812,79 @@ namespace ns_udp_server {
                 }
 
             } // while ( run )
+        }
+
+        /**
+         * @brief Sends a zero-byte dummy datagram to the local port to unblock the server.
+         *
+         * This function creates a temporary, short-lived UDP socket and transmits an empty
+         * payload to the server's own listening port via the local loopback interface (127.0.0.1).
+         * It acts as a wake-up signal to force the blocking `recvfrom()` call inside the
+         * ingestion loop to return immediately, allowing the thread to evaluate shutdown flags.
+         *
+         * @note Cross-platform implementation handling Winsock (Windows) and POSIX (Linux/Unix)
+         *       socket lifecycles natively. It cleans up its internal resources before returning.
+         */
+        void send_dummy() {
+        #if defined(_WIN64) || defined(_WIN32)
+            SOCKET wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
+            if (wake_sock != INVALID_SOCKET) {
+        #elif defined(__linux__) || defined(__unix__)
+            int wake_sock = socket(AF_INET, SOCK_DGRAM, 0);
+            if (wake_sock >= 0) {
+        #endif
+                sockaddr_in loopback_addr{};
+                loopback_addr.sin_family = AF_INET;
+                loopback_addr.sin_port = htons(mlocal_port);
+                inet_pton(AF_INET, "127.0.0.1", &loopback_addr.sin_addr);
+
+                // Transmit 0 bytes payload. This safely wakes up recvfrom() without carrying data.
+                sendto(wake_sock, nullptr, 0, 0, reinterpret_cast<struct sockaddr*>(&loopback_addr), sizeof(loopback_addr));
+
+            #if defined(_WIN64) || defined(_WIN32)
+                closesocket(wake_sock);
+            #elif defined(__linux__) || defined(__unix__)
+                close(wake_sock);
+            #endif
+            }
+        }
+
+        /**
+         * @brief Closes the main server socket interface and releases OS network resources.
+         *
+         * Safely terminates the operational socket descriptor and resets the internal identifier
+         * (`INVALID_SOCKET` on Windows or `-1` on Linux) to prevent double-close attempts or dangling
+         * resource references.
+         *
+         * @note If the socket system call fails during the shutdown phase, it logs the operating
+         *       system's diagnostic state and propagates a structured runtime error.
+         *
+         * @throws udp_server_error Thrown if the operating system fails to gracefully release
+         *                          the allocated socket interface descriptor.
+         */
+        void close_socket() {
+            bool err_close = false;
+            #if defined(_WIN64) || defined(_WIN32)
+                // On Windows, msocket might be checked against INVALID_SOCKET
+                if (msocket != INVALID_SOCKET) {
+                    if (closesocket(msocket) == SOCKET_ERROR) {
+                        err_close = true;
+                    }
+                    msocket = INVALID_SOCKET;
+                }
+            #elif defined(__linux__) || defined(__unix__)
+                if (msocket != -1) {
+                    if (close(msocket) != 0) {
+                        err_close = true;
+                    }
+                    msocket = -1;
+                }
+            #endif
+            // If an error occurred during shutdown, we log it instead of throwing an exception
+            if (err_close) {
+                set_err_sys();
+                throw udp_server_error("Exception \"udp_server::stop()\"", get_error_code_num(), get_error_code_str() );
+            }
         }
 
     }; // class udp_server
