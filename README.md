@@ -30,20 +30,23 @@ Follow these steps to integrate and manage in your application:
    ```
 
 2. **Create object udp server**
-   Instance of object with the local port argument of the costructor
+   Instantiate the server object by passing the local port as an argument to constructor
    ```cpp
    ns_udp_server::udp_server my_udp_server(1581)
 
 3. **Start the udp server**
-   Call the `start()` function to start the udp server
+   Call the `start()` function to initialize the server
+   ```cpp
+   my_udp_server.start();
+   ```
    > ⚠️ **Note:** This function must be called first and is **BLOCKING**.
 
 5. **Get Data**
-   Call the `get_last_packet()` function to obtain the message from udp server.
-   > ⚡ **Note:** This function is **BLOCKING** only the first packet
+   Call the `get_last_packet()` function to retrieve the last message from udp server.
+   > ⚡ **Note:** This function is **BLOCKING** only until the first packet arrives.
 
 6. **Stop the udp server**
-   After calling `stop()` the usp server shall be stopped.
+   After calling `stop()` to safely shut down the UDP server:
    * This function is **BLOCKING**.
 
 ---
@@ -56,15 +59,30 @@ For a practical implementation, please check the `ns_base_udp_server` namespace 
 ## 📂 Project Structure
 
 ```text
-├── udp_server/ ................. # Source code of the library
-├── examples/ ................... # Source Code of the examples
-├── tests/ ...................... # Unit tests and debugging tools
-│   ├── integration ................ # Source code of the integration tests
-│   ├── unit ....................... # Source code of the unit tests
-│   ├── CMakeLists.txt ............. # Main CMake configuration file
-│   └── README.md .................. # Project documentation file
-├── scripts/ ................... # Cross-platform automation and build tools (see details below)
-└── README.md .................. # Project documentation file
+📂 udp_server
+├── examples/ ....................... # Example implementations and client scripts
+│   ├── base_udp_server.cpp .............. # Basic UDP server usage example
+│   ├── client_udp.sh .................... # Test script acting as a UDP client
+│   └── CMakeLists.txt ................... # CMake configuration for examples
+├── scripts/ ........................ # Cross-platform automation, build, and profiling tools
+│   ├── build.cmd / build.sh ............. # Main compilation and build scripts
+│   ├── clean.cmd / clean.sh ............. # Workspace cleanup scripts
+│   ├── env.cmd / env.sh ................. # Shared environment and compiler variables
+│   ├── run.cmd / run.sh ................. # Test suite execution scripts
+│   ├── run_valgrind.sh .................. # Memory leak profiling script (Linux only)
+│   └── doxygen.cfg ...................... # Doxygen documentation configuration file
+├── tests/ .......................... # Testing environment (GoogleTest)
+│   ├── integration/ ..................... # Source code of the integration tests
+│   ├── unit/ ............................ # Source code of the unit tests
+│   ├── CMakeLists.txt ................... # CMake configuration for tests
+│   └── README.md ........................ # Tests documentation file
+├── udp_server/ ..................... # Library folder containing the header component
+│   └── udp_server.hpp ................... # The single-header UDP server component (all-in-one)
+├── .gitignore ........................... # Git ignore file mapping untracked files
+├── LICENSE .............................. # Project license file (GPLv3)
+├── note.txt ............................. # Project local notes or internal checklist
+└── README.md ............................ # Main project documentation file
+
 ```
 
 ---
@@ -95,7 +113,7 @@ Follow these steps to build and run the test suite:
    * **Linux/Unix:** `./scripts/build.sh debug`
    * **Windows:** `.\scripts\build.cmd release`
    
-   > ℹ️ *Note: The `CMakeLists.txt` file automatically loops through all source files in the `test/unit`,`test/integration` or `example/` directory and builds a separate executable for each one.*
+   > ℹ️ *Note: The `CMakeLists.txt` file automatically loops through all source files in the `test/unit`,`test/integration` or `example/` directories and builds a separate executable for each one.*
 
 3. **Run the tests**  
    Execute the run scripts to test your code:
