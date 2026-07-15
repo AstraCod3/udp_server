@@ -1,0 +1,7 @@
+.vscode/
+.vs/
+test/.vs/
+bin/
+build/
+deps/
+log/
