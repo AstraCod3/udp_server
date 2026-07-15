@@ -97,7 +97,6 @@ For a practical implementation, please check the `ns_base_udp_server` namespace 
 │   └── udp_server.hpp ................... # The single-header UDP server component (all-in-one)
 ├── .gitignore ...................... # Git ignore file mapping untracked files
 ├── LICENSE ......................... # Project license file (GPLv3)
-├── note.txt ........................ # Project local notes or internal checklist
 └── README.md ....................... # Main project documentation file
 ```
 
