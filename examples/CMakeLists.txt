@@ -38,14 +38,14 @@ if (UNIX)
         #
         # DEBUG (G++)
         #
-        if(BUILD_TOLOWER STREQUAL "debug")
+        if(BUILD_TYPE_LOWER STREQUAL "debug")
             add_compile_options(-O0 -g3 -ggdb3)
         endif()
 
         #
         # RELEASE (G++)
         #
-        if(BUILD_TOLOWER STREQUAL "release")
+        if(BUILD_TYPE_LOWER STREQUAL "release")
             add_compile_options(-O3)
             add_compile_definitions(NDEBUG)
         endif()
